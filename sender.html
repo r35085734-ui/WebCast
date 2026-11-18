@@ -118,7 +118,9 @@
   let conn = null;
   let call = null;
   let screenStream = null;
+  let connectTimer = null;
   const state = { connected: false, sharing: false };
+  const CONNECT_TIMEOUT = 15000; // ms — fail fast instead of hanging on "Connecting"
 
   function setStatus(kind, msg) {
     statusEl.className = 'status ' + kind;
@@ -132,10 +134,21 @@
 
   // Guest peer — use a random id so multiple laptops can connect if needed
   function createPeer() {
-    return new Peer(undefined, { debug: 1 });
+    return new Peer(undefined, {
+      debug: 1,
+      // Public STUN servers help the P2P connection establish faster, especially
+      // across NATs, so "Connecting" doesn't hang.
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      }
+    });
   }
 
   function cleanupPeer() {
+    clearTimeout(connectTimer);
     if (call) { try { call.close(); } catch(e){} call = null; }
     if (conn) { try { conn.close(); } catch(e){} conn = null; }
     if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
@@ -162,7 +175,18 @@
     peer.on('open', function () {
       setStatus('waiting', 'Connecting to TV…');
       conn = peer.connect(code, { reliable: true });
+
+      // Fail fast if the handshake doesn't complete in time
+      connectTimer = setTimeout(function () {
+        if (!state.connected) {
+          setStatus('error', 'Connection timed out. Check the code and that the TV page is open, then try again.');
+          cleanupPeer();
+          connectBtn.disabled = false;
+        }
+      }, CONNECT_TIMEOUT);
+
       conn.on('open', function () {
+        clearTimeout(connectTimer);
         state.connected = true;
         setStatus('connected', '✓ Connected to TV.');
         shareBtn.disabled = false;
@@ -170,6 +194,7 @@
       });
       conn.on('error', function (err) { console.warn('conn error', err); });
       conn.on('close', function () {
+        clearTimeout(connectTimer);
         state.connected = false;
         shareBtn.disabled = true;
         connectBtn.disabled = false;

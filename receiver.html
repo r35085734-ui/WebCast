@@ -112,75 +112,94 @@
     setStatus('error', msg);
   }
 
-  // Create a PeerJS peer with our code as ID
-  try {
-    peer = new Peer(code, {
+  // Build the PeerJS config: public cloud signaling + STUN for fast P2P.
+  function peerOptions() {
+    return {
       // Host on the public PeerJS cloud signaling server.
       // WebRTC media still flows peer-to-peer (or via a public TURN relay if P2P fails).
-      debug: 1
-    });
-  } catch (e) {
-    fatal('Could not start receiver: ' + e.message);
-    return;
+      debug: 1,
+      // Public STUN servers help a fast peer-to-peer connection, so the laptop
+      // connects quicker instead of waiting on the relay.
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      }
+    };
   }
 
-  peer.on('open', function () {
-    setStatus('waiting', 'Waiting for your laptop to connect… (code ready)');
-  });
-
-  peer.on('error', function (err) {
-    console.warn('PeerJS error:', err.type, err.message);
-    if (err.type === 'unavailable-id') {
-      // Code collision — regenerate
-      code = '';
-      for (let i = 0; i < CODE_LENGTH; i++) {
-        code += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-      }
-      codeEl.textContent = code;
-      setStatus('waiting', 'Code was taken, generated a new one. Enter the NEW code on your laptop.');
-      setTimeout(() => setStatus('waiting', 'Waiting for your laptop to connect…'), 4000);
-    } else if (err.type === 'peer-unavailable') {
-      setStatus('error', 'Connection lost — your laptop disconnected.');
-    } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'disconnected') {
-      setStatus('error', 'Network error. Sleeping… (press F5 to reconnect)');
-      setTimeout(() => { try { peer.reconnect(); } catch(e){} }, 3000);
+  // Create the peer AND attach ALL handlers. Called on first load and after a
+  // code collision, so the fresh peer always works the same way.
+  function initPeer() {
+    try {
+      peer = new Peer(code, peerOptions());
+    } catch (e) {
+      fatal('Could not start receiver: ' + e.message);
+      return;
     }
-  });
 
-  peer.on('connection', function (conn) {
-    conn.on('open', function () {
-      setStatus('connected', 'Connected to your laptop! Waiting for video…');
+    peer.on('open', function () {
+      setStatus('waiting', 'Waiting for your laptop to connect… (code ready)');
     });
-    conn.on('error', function (err) { console.warn('Data connection error', err); });
-    conn.on('close', function () {
-      setStatus('error', 'Laptop disconnected.');
-    });
-  });
 
-  // Receive the media stream
-  peer.on('call', function (call) {
-    call.answer(); // Accept audio/video stream from laptop
-    call.on('stream', function (stream) {
-      videoEl.srcObject = stream;
-      // Show the audio badge only if the sender is actually sharing audio
-      const hasAudio = stream.getAudioTracks().length > 0;
-      document.getElementById('audioBadge').style.display = hasAudio ? '' : 'none';
-      // Unmute so the TV plays the laptop's sound
-      videoEl.muted = false;
-      videoEl.play && videoEl.play().catch(()=>{});
-      // Show fullscreen stage
-      setupEl.classList.add('hidden');
-      stageEl.classList.remove('hidden');
-      document.body.requestFullscreen && document.body.requestFullscreen().catch(()=>{});
+    peer.on('error', function (err) {
+      console.warn('PeerJS error:', err.type, err.message);
+      if (err.type === 'unavailable-id') {
+        // Code collision — destroy the broken peer, regenerate, and start fresh
+        try { peer.destroy(); } catch(e){}
+        code = '';
+        for (let i = 0; i < CODE_LENGTH; i++) {
+          code += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+        }
+        codeEl.textContent = code;
+        setStatus('waiting', 'Code was taken, generated a new one. Enter the NEW code on your laptop.');
+        initPeer();
+      } else if (err.type === 'peer-unavailable') {
+        setStatus('error', 'Connection lost — your laptop disconnected.');
+      } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'disconnected') {
+        setStatus('error', 'Network error. Retrying…');
+        setTimeout(() => { try { peer.reconnect(); } catch(e){} }, 3000);
+      }
     });
-    call.on('close', function () {
-      videoEl.srcObject = null;
-      stageEl.classList.add('hidden');
-      setupEl.classList.remove('hidden');
-      setStatus('error', 'Stream ended. You can receive again.');
+
+    peer.on('connection', function (conn) {
+      conn.on('open', function () {
+        setStatus('connected', 'Connected to your laptop! Waiting for video…');
+      });
+      conn.on('error', function (err) { console.warn('Data connection error', err); });
+      conn.on('close', function () {
+        setStatus('error', 'Laptop disconnected.');
+      });
     });
-    call.on('error', function (err) { console.warn('Call error', err); });
-  });
+
+    // Receive the media stream
+    peer.on('call', function (call) {
+      call.answer(); // Accept audio/video stream from laptop
+      call.on('stream', function (stream) {
+        videoEl.srcObject = stream;
+        // Show the audio badge only if the sender is actually sharing audio
+        const hasAudio = stream.getAudioTracks().length > 0;
+        document.getElementById('audioBadge').style.display = hasAudio ? '' : 'none';
+        // Unmute so the TV plays the laptop's sound
+        videoEl.muted = false;
+        videoEl.play && videoEl.play().catch(()=>{});
+        // Show fullscreen stage
+        setupEl.classList.add('hidden');
+        stageEl.classList.remove('hidden');
+        document.body.requestFullscreen && document.body.requestFullscreen().catch(()=>{});
+      });
+      call.on('close', function () {
+        videoEl.srcObject = null;
+        stageEl.classList.add('hidden');
+        setupEl.classList.remove('hidden');
+        setStatus('error', 'Stream ended. You can receive again.');
+      });
+      call.on('error', function (err) { console.warn('Call error', err); });
+    });
+  }
+
+  initPeer();
 
   // Allow leaving fullscreen with Esc
   document.addEventListener('fullscreenchange', function () {
