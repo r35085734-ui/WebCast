@@ -119,6 +119,7 @@
   let call = null;
   let screenStream = null;
   let connectTimer = null;
+  let autoConnectTimer = null;
   const state = { connected: false, sharing: false };
   const CONNECT_TIMEOUT = 15000; // ms — fail fast instead of hanging on "Connecting"
 
@@ -165,6 +166,7 @@
 
   function cleanupPeer() {
     clearTimeout(connectTimer);
+    clearTimeout(autoConnectTimer);
     if (call) { try { call.close(); } catch(e){} call = null; }
     if (conn) { try { conn.close(); } catch(e){} conn = null; }
     if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
@@ -290,6 +292,20 @@
   codeInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') connectBtn.click();
   });
+
+  // If opened from a scanned QR (sender.html?code=ABCDEF), prefill the code
+  // and auto-connect once the peer is ready.
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var qrCode = (params.get('code') || '').trim().toUpperCase();
+    if (qrCode.length === 6) {
+      codeInput.value = qrCode;
+      setStatus('waiting', 'Code from QR loaded — connecting…');
+      autoConnectTimer = setTimeout(function () {
+        connectBtn.click();
+      }, 400);
+    }
+  })();
 })();
 </script>
 </body>

@@ -55,6 +55,13 @@
     background: rgba(0,0,0,.5); color: #4ee08a; font-size: 12px; font-weight: 600;
     padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(78,224,138,.35);
   }
+  .qr-wrap { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .qr-label { font-size: 12px; color: #a4b4d4; }
+  #qrcode {
+    background: #fff; padding: 10px; border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); line-height: 0;
+  }
+  #qrcode img, #qrcode canvas { display: block; width: 176px; height: 176px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -74,6 +81,10 @@
     <h1>🖥️ TV <span class="grad">Receiver</span></h1>
     <div class="code-label">Your 6-letter code for your laptop</div>
     <div class="code" id="code">••••••</div>
+    <div class="qr-wrap">
+      <div class="qr-label">or scan with your laptop's camera to auto-connect</div>
+      <div id="qrcode"></div>
+    </div>
     <div class="status waiting" id="status">Waiting for your laptop to connect…</div>
     <div class="hint">
       On your <strong>laptop</strong>, open the same website, choose <strong>I'm the Laptop (Sender)</strong>,
@@ -82,6 +93,7 @@
     </div>
   </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 (function () {
@@ -100,6 +112,28 @@
     code += String.fromCharCode(65 + Math.floor(Math.random() * 26));
   }
   codeEl.textContent = code;
+
+  // Build the link the laptop opens (Sender page with this code prefilled),
+  // then render it as a QR code so the laptop can just scan it.
+  function renderQr() {
+    var qrBox = document.getElementById('qrcode');
+    qrBox.innerHTML = '';
+    try {
+      var path = window.location.pathname.replace(/receiver\.html.*$/, '');
+      var url = window.location.origin + path + 'sender.html?code=' + code;
+      new QRCode(qrBox, {
+        text: url,
+        width: 176,
+        height: 176,
+        colorDark: '#0b1220',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    } catch (e) {
+      qrBox.textContent = '(QR unavailable on this device)';
+    }
+  }
+  renderQr();
 
   function setStatus(kind, message) {
     statusEl.className = 'status ' + kind;
@@ -164,7 +198,8 @@
           code += String.fromCharCode(65 + Math.floor(Math.random() * 26));
         }
         codeEl.textContent = code;
-        setStatus('waiting', 'Code was taken, generated a new one. Enter the NEW code on your laptop.');
+        renderQr();
+        setStatus('waiting', 'Code was taken, generated a new one. Enter (or scan) the NEW code on your laptop.');
         initPeer();
       } else if (err.type === 'peer-unavailable') {
         setStatus('error', 'Connection lost — your laptop disconnected.');
