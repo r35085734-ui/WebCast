@@ -3,8 +3,8 @@
 Mirror your Windows laptop screen onto your smart TV's browser over the internet —
 no cables, no apps, no router setup. Just a browser on each device.
 
-- **TV (Receiver):** `receiver.html` — shows a 6-letter code, displays your laptop's screen.
-- **Laptop (Sender):** `sender.html` — enter the code and stream your screen.
+- **TV (Receiver):** `receiver.html` — shows a 6-letter code, displays your laptop's screen **and sound**.
+- **Laptop (Sender):** `sender.html` — enter the code and stream your screen **and audio**.
 - **Home:** `index.html` — landing page that links to both.
 
 ---
@@ -15,10 +15,10 @@ The app uses **WebRTC** to stream your screen peer-to-peer:
 
 1. The TV page creates a "peer" with a random 6-letter code as its ID.
 2. The laptop page connects to that ID via the **PeerJS cloud signaling server**.
-3. Once connected, the laptop captures its screen with `getDisplayMedia()` and sends the
-   video stream over WebRTC straight to the TV.
-4. The video flows **directly between your devices** (or via a public TURN relay only when
-   direct peer-to-peer is blocked by NAT/firewall). It is encrypted in transit.
+3. Once connected, the laptop captures its screen and system/tab audio with `getDisplayMedia()`
+   and sends the stream over WebRTC straight to the TV.
+4. The video and audio flow **directly between your devices** (or via a public TURN relay only
+   when direct peer-to-peer is blocked by NAT/firewall). They are encrypted in transit.
 
 ---
 
@@ -57,8 +57,9 @@ python -m http.server 8080
    You'll see a 6-letter code.
 2. **On the laptop:** on your Windows laptop, open the **same URL**, choose **"I'm the Laptop (Sender)"**.
 3. Enter the 6-letter code and click **Connect**.
-4. Click **Start Sharing Screen**, then select **"Entire screen"** in the Windows picker (or a single window).
-5. Your screen appears on the TV. Use the Windows capture bar or the **Stop Sharing** button to end.
+4. Click **Start Sharing Screen**, then select **"Entire screen"** in the Windows picker (or a single
+   window). To also share sound to the TV, tick **"Share system audio"** in that picker (Chrome/Edge).
+5. Your screen and audio appear on the TV. Use the Windows capture bar or the **Stop Sharing** button to end.
 
 ---
 
@@ -67,6 +68,10 @@ python -m http.server 8080
 - Put both devices on the **same Wi‑Fi** for the lowest latency and best quality (though
   different networks work too via the relay).
 - Keep the TV page **open and in the foreground** while streaming.
+- The sender captures at up to **60fps** for smooth, near real-time video (WebRTC already encodes
+  as fast as your CPU/network allow). For the snappiest feel, use a wired connection or 5 GHz Wi‑Fi.
+- To hear audio on the TV, enable **"Share system audio"** in the screen (icker. To fully mute your
+  laptop's own speakers, lower the laptop sound (browsers can't change system volume automatically).
 - For 1080p smoothness, make sure the TV's browser is reasonably modern (WebRTC support).
 - If video never connects but the code/connection succeeds, your network may block P2P;
   the relay should still get you a working (if slightly lower-quality) stream.

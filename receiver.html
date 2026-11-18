@@ -8,39 +8,52 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: #05080f; color: #e8eef7; min-height: 100vh;
-    display: flex; align-items: center; justify-content: center; padding: 20px;
+    background: #05070f; color: #eef2fb; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 20px; position: relative; overflow-x: hidden;
   }
+  .orb { position: fixed; border-radius: 50%; filter: blur(90px); opacity: .5; z-index: 0; pointer-events: none; }
+  .orb.a { width: 420px; height: 420px; background: #00d4ff; top: -120px; left: -100px; animation: drift 18s ease-in-out infinite alternate; }
+  .orb.b { width: 380px; height: 380px; background: #4ee08a; bottom: -120px; right: -100px; animation: drift 22s ease-in-out infinite alternate-reverse; }
+  @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(50px,-40px) scale(1.12); } }
   .box {
-    background: rgba(16, 27, 47, 0.85); border: 1px solid rgba(122,167,255,.18);
-    border-radius: 22px; padding: 34px; max-width: 520px; width: 100%; text-align: center;
-    box-shadow: 0 25px 70px rgba(0,0,0,.55);
+    position: relative; z-index: 1;
+    background: linear-gradient(160deg, rgba(22,32,58,.85), rgba(12,18,36,.92));
+    border: 1px solid rgba(122,167,255,.22); border-radius: 26px;
+    padding: 36px; max-width: 520px; width: 100%; text-align: center;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.03), 0 35px 90px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06);
+    backdrop-filter: blur(14px);
   }
-  .box h1 { font-size: 24px; }
-  .code-label { margin: 22px 0 8px; color: #9fb0ce; font-size: 14px; letter-spacing: .5px; }
+  .box h1 { font-size: 25px; font-weight: 800; }
+  .box h1 .grad { background: linear-gradient(90deg,#00d4ff,#4ee08a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .code-label { margin: 22px 0 8px; color: #a4b4d4; font-size: 14px; letter-spacing: .5px; }
   .code {
     font-size: 34px; font-weight: 800; letter-spacing: 7px; color: #7aa7ff;
-    background: rgba(7,12,24,.8); border: 1px dashed #7aa7ff66; border-radius: 14px;
+    background: rgba(6,10,22,.85); border: 1px dashed rgba(122,167,255,.4); border-radius: 16px;
     padding: 16px 10px; margin: 6px 0 14px; font-variant-numeric: tabular-nums;
     user-select: all; word-break: break-all;
   }
-  .status { font-size: 14px; color: #9fb0ce; min-height: 22px; }
-  .status.connected { color: #6fe08a; }
+  .status { font-size: 14px; color: #a4b4d4; min-height: 22px; }
+  .status.connected { color: #4ee08a; }
   .status.waiting { color: #f0c869; }
   .status.error { color: #ff7b7b; }
   .btn {
-    margin-top: 16px; padding: 12px 22px; border-radius: 12px; border: none;
-    background: rgba(122,167,255,.16); color: #7aa7ff; font-size: 14px; font-weight: 600;
-    cursor: pointer; transition: background .15s ease;
+    margin-top: 16px; padding: 12px 22px; border-radius: 14px; border: 1px solid rgba(122,167,255,.25);
+    background: rgba(122,167,255,.12); color: #7aa7ff; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: background .15s ease, transform .12s ease;
   }
-  .btn:hover { background: rgba(122,167,255,.28); }
-  .hint { margin-top: 20px; font-size: 12.5px; color: #74849e; line-height: 1.6; }
+  .btn:hover { background: rgba(122,167,255,.26); transform: translateY(-1px); }
+  .hint { margin-top: 20px; font-size: 12.5px; color: #7b8aa8; line-height: 1.65; }
   #stage { position: fixed; inset: 0; background: #000; z-index: 0; }
-  #stage video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #stage video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
   #stage .full-hint {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,.55); color: #dfe8f7; font-size: 13px; padding: 8px 16px;
-    border-radius: 999px; white-space: nowrap;
+    background: rgba(0,0,0,.6); color: #dfe8f7; font-size: 13px; padding: 8px 16px;
+    border-radius: 999px; white-space: nowrap; border: 1px solid rgba(255,255,255,.12);
+  }
+  #stage .audio-badge {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.5); color: #4ee08a; font-size: 12px; font-weight: 600;
+    padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(78,224,138,.35);
   }
   .hidden { display: none !important; }
 </style>
@@ -48,19 +61,24 @@
 <body>
   <!-- Fullscreen video stage (shown once streaming starts) -->
   <div id="stage" class="hidden">
-    <video id="remoteVideo" autoplay playsinline controls></video>
-    <div class="full-hint">Showing your laptop's screen · press ESC or click the video controls to exit fullscreen</div>
+    <video id="remoteVideo" autoplay playsinline></video>
+    <div class="audio-badge" id="audioBadge">🔊 Audio playing on TV</div>
+    <div class="full-hint">Showing your laptop's screen + sound · press ESC to exit fullscreen</div>
   </div>
 
   <!-- Setup card -->
+  <div class="orb a"></div>
+  <div class="orb b"></div>
+
   <div class="box" id="setup">
-    <h1>🖥️ TV Receiver</h1>
+    <h1>🖥️ TV <span class="grad">Receiver</span></h1>
     <div class="code-label">Your 6-letter code for your laptop</div>
     <div class="code" id="code">••••••</div>
     <div class="status waiting" id="status">Waiting for your laptop to connect…</div>
     <div class="hint">
       On your <strong>laptop</strong>, open the same website, choose <strong>I'm the Laptop (Sender)</strong>,
-      and enter this code. Make sure both devices are online.
+      and enter this code. Once connected, your laptop's screen <em>and sound</em> appear here. Make sure both
+      devices are online.
     </div>
   </div>
 
@@ -144,6 +162,12 @@
     call.answer(); // Accept audio/video stream from laptop
     call.on('stream', function (stream) {
       videoEl.srcObject = stream;
+      // Show the audio badge only if the sender is actually sharing audio
+      const hasAudio = stream.getAudioTracks().length > 0;
+      document.getElementById('audioBadge').style.display = hasAudio ? '' : 'none';
+      // Unmute so the TV plays the laptop's sound
+      videoEl.muted = false;
+      videoEl.play && videoEl.play().catch(()=>{});
       // Show fullscreen stage
       setupEl.classList.add('hidden');
       stageEl.classList.remove('hidden');
