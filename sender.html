@@ -121,7 +121,10 @@
   let connectTimer = null;
   let autoConnectTimer = null;
   const state = { connected: false, sharing: false };
-  const CONNECT_TIMEOUT = 15000; // ms — fail fast instead of hanging on "Connecting"
+  const CONNECT_TIMEOUT = 12000; // ms — fail fast instead of hanging on "Connecting"
+  const MAX_CONNECT_ATTEMPTS = 3;
+  let connectAttempt = 0;
+  let targetCode = null;
 
   function setStatus(kind, msg) {
     statusEl.className = 'status ' + kind;
@@ -178,6 +181,21 @@
     if (code.length !== 6) { setStatus('error', 'Please enter the full 6-letter code from your TV.'); return; }
     if (state.connected) return;
 
+    targetCode = code;
+    connectAttempt = 0;
+    attemptConnect();
+  });
+
+  // Automatically retry instead of giving up after one slow attempt. A single
+  // P2P attempt can fail on certain laptop/hotspot combinations even on the
+  // same Wi-Fi (firewall, mDNS/host-candidate resolution, or transient NAT),
+  // while a second attempt often succeeds. All attempts still use STUN and,
+  // when configured, the TURN relay fallback.
+  function attemptConnect() {
+    if (!targetCode || targetCode.length !== 6) return;
+    connectAttempt++;
+    const attemptLabel = connectAttempt > 1 ? ' (attempt ' + connectAttempt + '/' + MAX_CONNECT_ATTEMPTS + ')' : '';
+
     cleanupPeer();
     peer = createPeer();
 
@@ -186,35 +204,28 @@
       if (err.type === 'peer-unavailable') {
         setStatus('error', 'No TV found with that code. Check the code and make sure the TV page is open.');
       } else if (err.type === 'network' || err.type === 'socket-error') {
-        setStatus('error', 'Network error. Check your internet and try again.');
+        setStatus('waiting', 'Network error — retrying…' + attemptLabel);
+        scheduleRetry();
       }
     });
 
     peer.on('open', function () {
-      setStatus('waiting', 'Connecting to TV…');
-      conn = peer.connect(code, { reliable: true });
+      setStatus('waiting', 'Connecting to TV…' + attemptLabel);
+      conn = peer.connect(targetCode, { reliable: true });
 
-      // Fail fast if the handshake doesn't complete in time
       connectTimer = setTimeout(function () {
-        if (!state.connected) {
-          // The direct P2P path is blocked. Often the laptop is on a different
-          // Wi-Fi than the TV, or its firewall blocks WebRTC. Tell the user
-          // clearly so they can fix it (same Wi-Fi = fastest fix; a TURN relay
-          // = robust fix that works across any network).
-          setStatus('error', 'Connection timed out — the laptop\'s network is blocking the direct link. Make sure the laptop is on the SAME Wi-Fi as the TV. See README for TURN relay option.');
-          cleanupPeer();
-          connectBtn.disabled = false;
-        }
+        if (!state.connected) scheduleRetry();
       }, CONNECT_TIMEOUT);
 
       conn.on('open', function () {
         clearTimeout(connectTimer);
+        connectAttempt = 0;
         state.connected = true;
         setStatus('connected', '✓ Connected to TV.');
         shareBtn.disabled = false;
         connectBtn.disabled = true;
       });
-      conn.on('error', function (err) { console.warn('conn error', err); });
+      conn.on('error', function (err) { console.warn('conn error', err); scheduleRetry(); });
       conn.on('close', function () {
         clearTimeout(connectTimer);
         state.connected = false;
@@ -223,7 +234,22 @@
         setStatus('error', 'Connection to TV closed.');
       });
     });
-  });
+  }
+
+  function scheduleRetry() {
+    clearTimeout(connectTimer);
+    if (state.connected) return;
+    if (connectAttempt < MAX_CONNECT_ATTEMPTS) {
+      setStatus('waiting', 'Connection attempt ' + connectAttempt + ' didn\'t finish — retrying…');
+      // Short pause before the next attempt so port/ICE state can settle
+      connectTimer = setTimeout(function () { attemptConnect(); }, 1500);
+    } else {
+      connectAttempt = 0;
+      setStatus('error', 'Could not connect after ' + MAX_CONNECT_ATTEMPTS + ' attempts even on the same Wi-Fi. This usually means the laptop\'s firewall/VPN, or the router\'s device isolation, is blocking the direct link. Steps: close any VPN, allow WebRTC through the firewall, or set up a TURN relay (see README).');
+      cleanupPeer();
+      connectBtn.disabled = false;
+    }
+  }
 
   async function startSharing() {
     try {
