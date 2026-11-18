@@ -76,6 +76,15 @@ python -m http.server 8080
 - If video never connects but the code/connection succeeds, your network may block P2P;
   the relay should still get you a working (if slightly lower-quality) stream.
 
+## If you can't connect from a laptop (same Wi-Fi or not)
+
+If a phone connects but a laptop stays on "Connecting", the laptop's network is blocking
+WebRTC's direct (P2P) link. The reliable fix is a **self-hosted relay** (your own signaling
+server + TURN). The `server/` folder contains a ready-to-run setup — see
+[server/README.md](server/README.md).
+
+---
+
 ## Notes / limitations
 
 - `getDisplayMedia` may not be available in some older TV in-app browsers. If your TV's browser

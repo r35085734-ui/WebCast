@@ -149,29 +149,45 @@
   // ICE servers: STUN to find a direct path, plus an optional TURN relay as a
   // guaranteed fallback when the network blocks direct P2P (common on laptops
   // that are on a different/corporate Wi-Fi). Paste free TURN creds below if
-  // your laptop can't connect directly.
+  // your laptop can't connect directly. Override via URL params (see
+  // server/README.md): ?turnurl=turn:host:3478&turnuser=user&turnpass=pass
   function iceServers() {
+    var p = new URLSearchParams(window.location.search);
     var servers = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' }
     ];
-    var turn = {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'your-turn-username',
-      credential: 'your-turn-password'
-    };
-    if (turn.credential && turn.credential !== 'your-turn-password') {
-      servers.push(turn);
+    var turnUrl = p.get('turnurl');
+    var turnUser = p.get('turnuser');
+    var turnPass = p.get('turnpass');
+    if (turnUrl && turnUser && turnPass) {
+      servers.push({ urls: turnUrl, username: turnUser, credential: turnPass });
+    } else {
+      var turn = {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'your-turn-username',
+        credential: 'your-turn-password'
+      };
+      if (turn.credential && turn.credential !== 'your-turn-password') {
+        servers.push(turn);
+      }
     }
     return servers;
   }
 
-  // Build the PeerJS config: public cloud signaling + ICE servers.
+  // Build the PeerJS config: signaling server + ICE servers. The signaling
+  // server can be self-hosted via URL params (see server/README.md):
+  //   ?peerhost=your.domain.com&peerport=443&peersecure=1&peerpath=/peerjs
   function peerOptions() {
-    return {
-      debug: 1,
-      config: { iceServers: iceServers() }
-    };
+    var p = new URLSearchParams(window.location.search);
+    var opts = { debug: 1, config: { iceServers: iceServers() } };
+    if (p.get('peerhost')) {
+      opts.host = p.get('peerhost');
+      opts.port = parseInt(p.get('peerport') || '443', 10);
+      opts.secure = p.get('peersecure') !== '0';
+      opts.path = p.get('peerpath') || '/';
+    }
+    return opts;
   }
 
   // Create the peer AND attach ALL handlers. Called on first load and after a
