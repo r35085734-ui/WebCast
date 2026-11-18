@@ -112,20 +112,31 @@
     setStatus('error', msg);
   }
 
-  // Build the PeerJS config: public cloud signaling + STUN for fast P2P.
+  // ICE servers: STUN to find a direct path, plus an optional TURN relay as a
+  // guaranteed fallback when the network blocks direct P2P (common on laptops
+  // that are on a different/corporate Wi-Fi). Paste free TURN creds below if
+  // your laptop can't connect directly.
+  function iceServers() {
+    var servers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ];
+    var turn = {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'your-turn-username',
+      credential: 'your-turn-password'
+    };
+    if (turn.credential && turn.credential !== 'your-turn-password') {
+      servers.push(turn);
+    }
+    return servers;
+  }
+
+  // Build the PeerJS config: public cloud signaling + ICE servers.
   function peerOptions() {
     return {
-      // Host on the public PeerJS cloud signaling server.
-      // WebRTC media still flows peer-to-peer (or via a public TURN relay if P2P fails).
       debug: 1,
-      // Public STUN servers help a fast peer-to-peer connection, so the laptop
-      // connects quicker instead of waiting on the relay.
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-      }
+      config: { iceServers: iceServers() }
     };
   }
 

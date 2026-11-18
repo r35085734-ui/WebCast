@@ -132,18 +132,34 @@
     return (codeInput.value || '').trim().toUpperCase();
   }
 
+  // ICE servers: STUN helps discover a direct path; TURN gives a guaranteed
+  // relay fallback when the network blocks direct P2P (e.g. laptop on a
+  // different/corporate Wi-Fi). With no TURN, a blocked P2P hangs on
+  // "Connecting", which is what happens on some laptops.
+  function iceServers() {
+    var servers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ];
+    // Optional free TURN relay (paste credentials from a free provider such as
+    // Metered, OpenRelay or your own coturn server). If left empty, we rely on
+    // P2P + the PeerJS cloud relay.
+    var turn = {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'your-turn-username',
+      credential: 'your-turn-password'
+    };
+    if (turn.credential && turn.credential !== 'your-turn-password') {
+      servers.push(turn);
+    }
+    return servers;
+  }
+
   // Guest peer — use a random id so multiple laptops can connect if needed
   function createPeer() {
     return new Peer(undefined, {
       debug: 1,
-      // Public STUN servers help the P2P connection establish faster, especially
-      // across NATs, so "Connecting" doesn't hang.
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-      }
+      config: { iceServers: iceServers() }
     });
   }
 
@@ -179,7 +195,11 @@
       // Fail fast if the handshake doesn't complete in time
       connectTimer = setTimeout(function () {
         if (!state.connected) {
-          setStatus('error', 'Connection timed out. Check the code and that the TV page is open, then try again.');
+          // The direct P2P path is blocked. Often the laptop is on a different
+          // Wi-Fi than the TV, or its firewall blocks WebRTC. Tell the user
+          // clearly so they can fix it (same Wi-Fi = fastest fix; a TURN relay
+          // = robust fix that works across any network).
+          setStatus('error', 'Connection timed out — the laptop\'s network is blocking the direct link. Make sure the laptop is on the SAME Wi-Fi as the TV. See README for TURN relay option.');
           cleanupPeer();
           connectBtn.disabled = false;
         }
