@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ScreenCast — TV Receiver</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #05080f; color: #e8eef7; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .box {
+    background: rgba(16, 27, 47, 0.85); border: 1px solid rgba(122,167,255,.18);
+    border-radius: 22px; padding: 34px; max-width: 520px; width: 100%; text-align: center;
+    box-shadow: 0 25px 70px rgba(0,0,0,.55);
+  }
+  .box h1 { font-size: 24px; }
+  .code-label { margin: 22px 0 8px; color: #9fb0ce; font-size: 14px; letter-spacing: .5px; }
+  .code {
+    font-size: 34px; font-weight: 800; letter-spacing: 7px; color: #7aa7ff;
+    background: rgba(7,12,24,.8); border: 1px dashed #7aa7ff66; border-radius: 14px;
+    padding: 16px 10px; margin: 6px 0 14px; font-variant-numeric: tabular-nums;
+    user-select: all; word-break: break-all;
+  }
+  .status { font-size: 14px; color: #9fb0ce; min-height: 22px; }
+  .status.connected { color: #6fe08a; }
+  .status.waiting { color: #f0c869; }
+  .status.error { color: #ff7b7b; }
+  .btn {
+    margin-top: 16px; padding: 12px 22px; border-radius: 12px; border: none;
+    background: rgba(122,167,255,.16); color: #7aa7ff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background .15s ease;
+  }
+  .btn:hover { background: rgba(122,167,255,.28); }
+  .hint { margin-top: 20px; font-size: 12.5px; color: #74849e; line-height: 1.6; }
+  #stage { position: fixed; inset: 0; background: #000; z-index: 0; }
+  #stage video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #stage .full-hint {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.55); color: #dfe8f7; font-size: 13px; padding: 8px 16px;
+    border-radius: 999px; white-space: nowrap;
+  }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <!-- Fullscreen video stage (shown once streaming starts) -->
+  <div id="stage" class="hidden">
+    <video id="remoteVideo" autoplay playsinline controls></video>
+    <div class="full-hint">Showing your laptop's screen · press ESC or click the video controls to exit fullscreen</div>
+  </div>
+
+  <!-- Setup card -->
+  <div class="box" id="setup">
+    <h1>🖥️ TV Receiver</h1>
+    <div class="code-label">Your 6-letter code for your laptop</div>
+    <div class="code" id="code">••••••</div>
+    <div class="status waiting" id="status">Waiting for your laptop to connect…</div>
+    <div class="hint">
+      On your <strong>laptop</strong>, open the same website, choose <strong>I'm the Laptop (Sender)</strong>,
+      and enter this code. Make sure both devices are online.
+    </div>
+  </div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const codeEl = document.getElementById('code');
+  const statusEl = document.getElementById('status');
+  const setupEl = document.getElementById('setup');
+  const stageEl = document.getElementById('stage');
+  const videoEl = document.getElementById('remoteVideo');
+
+  // Generate a friendly 6-letter code (A-Z)
+  const CODE_LENGTH = 6;
+  let code = '';
+  for (let i = 0; i < CODE_LENGTH; i++) {
+    code += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  }
+  codeEl.textContent = code;
+
+  function setStatus(kind, message) {
+    statusEl.className = 'status ' + kind;
+    statusEl.textContent = message;
+  }
+
+  let peer = null;
+
+  function fatal(msg) {
+    setStatus('error', msg);
+  }
+
+  // Create a PeerJS peer with our code as ID
+  try {
+    peer = new Peer(code, {
+      // Host on the public PeerJS cloud signaling server.
+      // WebRTC media still flows peer-to-peer (or via a public TURN relay if P2P fails).
+      debug: 1
+    });
+  } catch (e) {
+    fatal('Could not start receiver: ' + e.message);
+    return;
+  }
+
+  peer.on('open', function () {
+    setStatus('waiting', 'Waiting for your laptop to connect… (code ready)');
+  });
+
+  peer.on('error', function (err) {
+    console.warn('PeerJS error:', err.type, err.message);
+    if (err.type === 'unavailable-id') {
+      // Code collision — regenerate
+      code = '';
+      for (let i = 0; i < CODE_LENGTH; i++) {
+        code += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      }
+      codeEl.textContent = code;
+      setStatus('waiting', 'Code was taken, generated a new one. Enter the NEW code on your laptop.');
+      setTimeout(() => setStatus('waiting', 'Waiting for your laptop to connect…'), 4000);
+    } else if (err.type === 'peer-unavailable') {
+      setStatus('error', 'Connection lost — your laptop disconnected.');
+    } else if (err.type === 'network' || err.type === 'socket-error' || err.type === 'disconnected') {
+      setStatus('error', 'Network error. Sleeping… (press F5 to reconnect)');
+      setTimeout(() => { try { peer.reconnect(); } catch(e){} }, 3000);
+    }
+  });
+
+  peer.on('connection', function (conn) {
+    conn.on('open', function () {
+      setStatus('connected', 'Connected to your laptop! Waiting for video…');
+    });
+    conn.on('error', function (err) { console.warn('Data connection error', err); });
+    conn.on('close', function () {
+      setStatus('error', 'Laptop disconnected.');
+    });
+  });
+
+  // Receive the media stream
+  peer.on('call', function (call) {
+    call.answer(); // Accept audio/video stream from laptop
+    call.on('stream', function (stream) {
+      videoEl.srcObject = stream;
+      // Show fullscreen stage
+      setupEl.classList.add('hidden');
+      stageEl.classList.remove('hidden');
+      document.body.requestFullscreen && document.body.requestFullscreen().catch(()=>{});
+    });
+    call.on('close', function () {
+      videoEl.srcObject = null;
+      stageEl.classList.add('hidden');
+      setupEl.classList.remove('hidden');
+      setStatus('error', 'Stream ended. You can receive again.');
+    });
+    call.on('error', function (err) { console.warn('Call error', err); });
+  });
+
+  // Allow leaving fullscreen with Esc
+  document.addEventListener('fullscreenchange', function () {
+    if (!document.fullscreenElement && !stageEl.classList.contains('hidden')) {
+      // user exited fullscreen but keep playing inline
+    }
+  });
+})();
+</script>
+</body>
+</html>

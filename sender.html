@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ScreenCast — Laptop Sender</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at 50% 0%, #101a2e 0%, #080d18 60%, #04070d 100%);
+    color: #e8eef7; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .box {
+    background: rgba(18,28,48,.78); border: 1px solid rgba(122,167,255,.18); border-radius: 22px;
+    padding: 34px; max-width: 560px; width: 100%; text-align: center; box-shadow: 0 25px 70px rgba(0,0,0,.55);
+  }
+  .box h1 { font-size: 24px; }
+  .step { text-align: left; margin-top: 22px; }
+  .step .num {
+    display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+    background: rgba(122,167,255,.18); color: #7aa7ff; border-radius: 50%; font-size: 14px; font-weight: 700;
+    margin-right: 10px;
+  }
+  .step label { font-size: 14px; font-weight: 600; color: #c6d3ea; }
+  .step p { margin-top: 6px; font-size: 12.5px; color: #93a5c2; }
+  input.code-input {
+    width: 100%; margin-top: 10px; padding: 14px; font-size: 26px; letter-spacing: 8px;
+    text-align: center; font-weight: 700; color: #7aa7ff; background: rgba(7,12,24,.8);
+    border: 1px solid rgba(122,167,255,.3); border-radius: 12px; outline: none;
+    font-variant-numeric: tabular-nums; text-transform: uppercase;
+  }
+  input.code-input:focus { border-color: #7aa7ff; }
+  .btn {
+    margin-top: 18px; width: 100%; padding: 14px; border-radius: 12px; border: none;
+    font-size: 15px; font-weight: 700; cursor: pointer; transition: filter .15s ease;
+    background: #4c7dff; color: #fff;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn.secondary { background: rgba(122,167,255,.14); color: #7aa7ff; margin-top: 10px; }
+  .status { margin-top: 16px; font-size: 14px; min-height: 24px; }
+  .status.connected { color: #6fe08a; }
+  .status.waiting { color: #f0c869; }
+  .status.streaming { color: #6fe08a; font-weight: 700; }
+  .status.error { color: #ff7b7b; }
+  #preview {
+    width: 100%; margin-top: 16px; border-radius: 12px; background: #000; border: 1px solid #223; display: none;
+  }
+  .controls { display: none; margin-top: 12px; gap: 10px; }
+  .controls .btn { margin-top: 0; width: auto; flex: 1; }
+</style>
+</head>
+<body>
+  <div class="box" id="setup">
+    <h1>💻 Laptop Sender</h1>
+
+    <div class="step">
+      <span class="num">1</span><label>Enter the TV's code</label>
+      <p>On your TV, you'll see a 6-letter code. Type it here.</p>
+      <input id="codeInput" class="code-input" maxlength="6" spellcheck="false" autocomplete="off" placeholder="ABCDEF" />
+    </div>
+
+    <button id="connectBtn" class="btn">Connect</button>
+    <div class="status waiting" id="status">Enter the code, then click Connect.</div>
+    <div class="status hidden" id="connectHint" style="margin-top:8px;font-size:12.5px;color:#93a5c2;">
+      Connected! Now click <strong>Start Sharing Screen</strong>.
+    </div>
+
+    <div class="step">
+      <span class="num" style="visibility:hidden">2</span>
+    </div>
+
+    <button id="shareBtn" class="btn secondary" disabled>Start Sharing Screen</button>
+    <video id="preview" autoplay muted playsinline></video>
+
+    <div class="controls" id="controls">
+      <button id="stopBtn" class="btn secondary">Stop Sharing</button>
+    </div>
+  </div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const codeInput = document.getElementById('codeInput');
+  const connectBtn = document.getElementById('connectBtn');
+  const shareBtn = document.getElementById('shareBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const statusEl = document.getElementById('status');
+  const connectHint = document.getElementById('connectHint');
+  const preview = document.getElementById('preview');
+
+  let peer = null;
+  let conn = null;
+  let call = null;
+  let screenStream = null;
+  const state = { connected: false, sharing: false };
+
+  function setStatus(kind, msg) {
+    statusEl.className = 'status ' + kind;
+    statusEl.textContent = msg;
+    connectHint.classList.toggle('hidden', !(kind === 'connected'));
+  }
+
+  function normalizeCode() {
+    return (codeInput.value || '').trim().toUpperCase();
+  }
+
+  // Guest peer — use a random id so multiple laptops can connect if needed
+  function createPeer() {
+    return new Peer(undefined, { debug: 1 });
+  }
+
+  function cleanupPeer() {
+    if (call) { try { call.close(); } catch(e){} call = null; }
+    if (conn) { try { conn.close(); } catch(e){} conn = null; }
+    if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
+    stopSharing(false);
+  }
+
+  connectBtn.addEventListener('click', function () {
+    const code = normalizeCode();
+    if (code.length !== 6) { setStatus('error', 'Please enter the full 6-letter code from your TV.'); return; }
+    if (state.connected) return;
+
+    cleanupPeer();
+    peer = createPeer();
+
+    peer.on('error', function (err) {
+      console.warn('PeerJS error:', err.type, err.message);
+      if (err.type === 'peer-unavailable') {
+        setStatus('error', 'No TV found with that code. Check the code and make sure the TV page is open.');
+      } else if (err.type === 'network' || err.type === 'socket-error') {
+        setStatus('error', 'Network error. Check your internet and try again.');
+      }
+    });
+
+    peer.on('open', function () {
+      setStatus('waiting', 'Connecting to TV…');
+      conn = peer.connect(code, { reliable: true });
+      conn.on('open', function () {
+        state.connected = true;
+        setStatus('connected', '✓ Connected to TV.');
+        shareBtn.disabled = false;
+        connectBtn.disabled = true;
+      });
+      conn.on('error', function (err) { console.warn('conn error', err); });
+      conn.on('close', function () {
+        state.connected = false;
+        shareBtn.disabled = true;
+        connectBtn.disabled = false;
+        setStatus('error', 'Connection to TV closed.');
+      });
+    });
+  });
+
+  async function startSharing() {
+    try {
+      screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 30, max: 30 } },
+        audio: false
+      });
+
+      // Watch for user stopping via the browser's "Stop sharing" bar
+      screenStream.getVideoTracks()[0].addEventListener('ended', function () {
+        if (state.sharing) stopSharing(true);
+      });
+
+      state.sharing = true;
+      preview.srcObject = screenStream;
+      preview.style.display = 'block';
+      shareBtn.style.display = 'none';
+      document.getElementById('controls').style.display = 'flex';
+
+      setStatus('streaming', '🔴 Streaming your screen to the TV now.');
+
+      // Call the TV with the media stream
+      if (conn && state.connected) {
+        call = peer.call(conn.peer, screenStream, {
+          metadata: { sender: 'laptop' }
+        });
+        call.on('error', function (err) {
+          console.warn('Call error (P2P failed? Using fallback)', err);
+        });
+      }
+    } catch (e) {
+      console.warn(e);
+      // User cancelled the share dialog
+      setStatus('waiting', 'Sharing cancelled. Click Start Sharing Screen again when ready.');
+    }
+  }
+
+  function stopSharing(showStatus) {
+    if (screenStream) {
+      screenStream.getTracks().forEach(t => t.stop());
+      screenStream = null;
+    }
+    if (call) { try { call.close(); } catch(e){} call = null; }
+    state.sharing = false;
+    preview.srcObject = null;
+    preview.style.display = 'none';
+    shareBtn.style.display = '';
+    document.getElementById('controls').style.display = 'none';
+    if (showStatus && state.connected) setStatus('connected', '✓ Still connected. Click Start Sharing to share again.');
+  }
+
+  shareBtn.addEventListener('click', startSharing);
+  stopBtn.addEventListener('click', function () { stopSharing(true); });
+
+  // Enter key connects
+  codeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') connectBtn.click();
+  });
+})();
+</script>
+</body>
+</html>
